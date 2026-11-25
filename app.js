@@ -45,9 +45,13 @@ function avisar(txt) {
 }
 const totalEps = it => it.tipo === 'filme' ? 1 : it.temporadas.reduce((a, n) => a + n, 0);
 const vistos = it => it.tipo === 'filme' ? (it.visto ? 1 : 0) : Object.keys(it.eps || {}).length;
+/* Próximo = o episódio depois do mais adiantado que você viu (quem começa pela TV no meio não fica preso no E1). */
 function proximo(it) {
-  for (let t = 1; t <= it.temporadas.length; t++)
-    for (let e = 1; e <= it.temporadas[t - 1]; e++)
+  let ult = null;
+  for (const k of Object.keys(it.eps || {})) { const [t, e] = k.split('x').map(Number); if (!ult || t > ult.t || (t === ult.t && e > ult.e)) ult = { t, e }; }
+  if (!ult) return it.temporadas.length ? { t: 1, e: 1 } : null;
+  for (let t = ult.t; t <= it.temporadas.length; t++)
+    for (let e = t === ult.t ? ult.e + 1 : 1; e <= it.temporadas[t - 1]; e++)
       if (!it.eps[chaveEp(t, e)]) return { t, e };
   return null;
 }
@@ -55,7 +59,7 @@ function rotuloEp(it, t, e) {
   const n = it.nomes && it.nomes[chaveEp(t, e)];
   return `T${t} E${e}` + (n ? ' · ' + n : '');
 }
-function capaHtml(it, classe = 'capa') {
+function _capaAntiga(it, classe = 'capa') {
   if (it.capa) return `<img class="${classe}" src="${esc(it.capa)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
   const ini = (it.titulo || '?').trim().slice(0, 1).toUpperCase();
   return `<div class="${classe} vazia">${esc(ini)}</div>`;
@@ -180,304 +184,6 @@ function aplicarAviso(texto, ts, itemForcado) {
   return `${it.titulo} T${t} E${e}`;
 }
 
-// ---------- lista ----------
-let filtro = 'todos', busca = '';
-function render() { renderLista(); renderRecebidos(); renderAjustes(); if (detId) renderDetalhe(); }
-function renderLista() {
-  const el = $('#lista');
-  if (!E.itens.length) {
-    el.innerHTML = `<div class="vazio"><p>Sua lista está vazia.</p><p class="dica">Adicione o que você está assistindo. A capa, as temporadas e os episódios vêm sozinhos.</p>
-      <button class="primario" data-abrir-add>+ Adicionar o primeiro</button></div>`;
-    return;
-  }
-  const q = normalizar(busca);
-  const itens = E.itens
-    .filter(it => filtro === 'todos' || it.tipo === filtro)
-    .filter(it => !q || normalizar([it.titulo, ...(it.apelidos || [])].join(' ')).includes(q))
-    .sort((a, b) => (b.atualizado || b.criado) - (a.atualizado || a.criado));
-  if (!itens.length) { el.innerHTML = '<p class="vazio">Nada encontrado.</p>'; return; }
-  const grupos = { ass: [], fila: [], fim: [] };
-  for (const it of itens) {
-    const v = vistos(it), tot = totalEps(it);
-    (v === 0 ? grupos.fila : v >= tot ? grupos.fim : grupos.ass).push(it);
-  }
-  const secao = (tit, lst) => lst.length ? `<div class="secao"><h2>${tit}</h2><div class="grade">${lst.map(card).join('')}</div></div>` : '';
-  el.innerHTML = secao('Continuar assistindo', grupos.ass) + secao('Quero ver', grupos.fila) + secao('Concluídos', grupos.fim);
-}
-function card(it) {
-  const tot = totalEps(it), v = vistos(it), pct = tot ? Math.round(v / tot * 100) : 0;
-  const p = it.tipo !== 'filme' && proximo(it);
-  const linha = it.tipo === 'filme' ? (it.visto ? 'Assistido' : 'Não assistido')
-    : p ? `Próximo: T${p.t} E${p.e}` : 'Em dia';
-  return `<button class="card" data-det="${it.id}">
-    ${capaHtml(it)}
-    <div class="barra"><div style="width:${pct}%"></div></div>
-    <div class="card-info"><span class="tag">${TIPOS[it.tipo]}${it.ano ? ' · ' + esc(it.ano) : ''}</span>
-      <strong>${esc(it.titulo)}</strong>
-      <small class="prox">${esc(linha)}</small>
-      ${it.tipo !== 'filme' ? `<small>${v} de ${tot} episódios</small>` : ''}</div>
-  </button>`;
-}
-$('#lista').addEventListener('click', ev => {
-  if (ev.target.closest('[data-abrir-add]')) return abrirAdd();
-  const c = ev.target.closest('[data-det]'); if (c) abrirDetalhe(c.dataset.det);
-});
-$('#busca').addEventListener('input', ev => { busca = ev.target.value; renderLista(); });
-$('#filtroTipo').addEventListener('click', ev => {
-  const b = ev.target.closest('button'); if (!b) return;
-  filtro = b.dataset.f;
-  document.querySelectorAll('#filtroTipo button').forEach(x => x.classList.toggle('ativa', x === b));
-  renderLista();
-});
-
-// ---------- painéis ----------
-function abrirPainel(id) { $(id).hidden = false; document.body.classList.add('travado'); }
-function fecharPaineis() {
-  ['#painelAdd', '#painelDet'].forEach(p => ($(p).hidden = true));
-  document.body.classList.remove('travado'); detId = null;
-}
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape') fecharPaineis(); });
-document.querySelectorAll('.painel').forEach(p => p.addEventListener('click', ev => {
-  if (ev.target === p || ev.target.closest('[data-fechar]')) fecharPaineis();
-}));
-
-// ---------- adicionar ----------
-let tipoBusca = 'serie', resultados = [], seqBusca = 0, timerBusca;
-function abrirAdd() {
-  abrirPainel('#painelAdd');
-  $('#buscaCatalogo').value = ''; $('#resultados').innerHTML = '<p class="dica">Digite pelo menos 2 letras.</p>';
-  setTimeout(() => $('#buscaCatalogo').focus(), 30);
-}
-$('#btnAdicionar').addEventListener('click', abrirAdd);
-$('#buscaTipo').addEventListener('click', ev => {
-  const b = ev.target.closest('button'); if (!b) return;
-  tipoBusca = b.dataset.t;
-  document.querySelectorAll('#buscaTipo button').forEach(x => x.classList.toggle('ativa', x === b));
-  $('#buscaCatalogo').placeholder = tipoBusca === 'filme' ? 'Nome do filme (ex.: Duna, Cidade de Deus)' : 'Nome da série ou anime (ex.: Frieren, Dark)';
-  pesquisar(); $('#buscaCatalogo').focus();
-});
-$('#buscaCatalogo').addEventListener('input', () => { clearTimeout(timerBusca); timerBusca = setTimeout(pesquisar, 350); });
-async function pesquisar() {
-  const q = $('#buscaCatalogo').value.trim(), el = $('#resultados'), seq = ++seqBusca;
-  if (q.length < 2) { el.innerHTML = '<p class="dica">Digite pelo menos 2 letras.</p>'; return; }
-  el.innerHTML = '<p class="carregando">Buscando…</p>';
-  try {
-    const r = tipoBusca === 'filme' ? await buscarFilmes(q) : await buscarSeries(q);
-    if (seq !== seqBusca) return;
-    resultados = r;
-    if (!r.length) { el.innerHTML = '<p class="dica">Nada encontrado. Tente outro nome, em inglês, ou adicione sem buscar logo abaixo.</p>'; return; }
-    const jaTem = new Set(E.itens.map(i => i.fonte + ':' + i.fid));
-    el.innerHTML = r.map((x, i) => `<button class="res" data-i="${i}">
-      ${x.capa ? `<img src="${esc(x.capa)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="capa vazia">${esc(x.titulo.slice(0, 1))}</div>`}
-      <div><strong>${esc(x.titulo)}</strong><small>${[TIPOS[x.tipo], x.ano, x.extra].filter(Boolean).map(esc).join(' · ')}</small>
-      ${jaTem.has(x.fonte + ':' + x.fid) ? '<small> · já está na lista</small>' : ''}</div></button>`).join('');
-  } catch (e) {
-    if (seq === seqBusca) el.innerHTML = '<p class="dica">Não consegui buscar agora (sem internet?). Use "adicionar sem buscar".</p>';
-  }
-}
-$('#resultados').addEventListener('click', async ev => {
-  const b = ev.target.closest('.res'); if (!b) return;
-  const x = resultados[+b.dataset.i]; if (!x) return;
-  const existente = E.itens.find(i => i.fonte === x.fonte && i.fid === x.fid);
-  if (existente) { fecharPaineis(); return abrirDetalhe(existente.id); }
-  b.disabled = true; b.querySelector('small').textContent = 'Carregando episódios…';
-  const it = {
-    id: novoId(), tipo: x.tipo, titulo: x.titulo, apelidos: (x.apelidos || []).filter(n => n !== x.titulo),
-    capa: x.capa || null, ano: x.ano || '', sinopse: x.sinopse || '', fonte: x.fonte, fid: x.fid,
-    temporadas: [], nomes: {}, eps: {}, visto: null, criado: Date.now(),
-  };
-  if (x.tipo !== 'filme') {
-    try {
-      if (x.fonte === 'tvmaze') Object.assign(it, await detalhesTvmaze(x.fid));
-      else it.temporadas = [x.eps || 12];
-    } catch (e) { it.temporadas = [x.eps || 12]; }
-    if (!it.temporadas.length) it.temporadas = [x.eps || 12];
-  }
-  E.itens.push(it); salvar(); fecharPaineis(); render(); abrirDetalhe(it.id);
-  avisar(`"${it.titulo}" adicionado. Toque nos episódios que você já viu.`);
-});
-$('#novoTipo').addEventListener('change', () => ($('#linhaEps').hidden = $('#novoTipo').value === 'filme'));
-$('#formNovo').addEventListener('submit', ev => {
-  ev.preventDefault();
-  const titulo = $('#novoTitulo').value.trim(); if (!titulo) return;
-  const tipo = $('#novoTipo').value;
-  const nt = Math.max(1, Math.min(99, +$('#novoTemps').value || 1)), ne = Math.max(1, Math.min(2000, +$('#novoEps').value || 1));
-  const it = { id: novoId(), tipo, titulo, apelidos: [], capa: null, ano: '', sinopse: '', fonte: 'manual', fid: null,
-    temporadas: tipo === 'filme' ? [] : Array(nt).fill(ne), nomes: {}, eps: {}, visto: null, criado: Date.now() };
-  E.itens.push(it); salvar(); ev.target.reset(); $('#linhaEps').hidden = false;
-  fecharPaineis(); render(); abrirDetalhe(it.id);
-});
-
-// ---------- detalhe ----------
-let detId = null, detTemp = 1;
-function abrirDetalhe(id) {
-  const it = E.itens.find(i => i.id === id); if (!it) return;
-  detId = id;
-  const p = it.tipo !== 'filme' && proximo(it);
-  detTemp = p ? p.t : 1;
-  renderDetalhe(); abrirPainel('#painelDet');
-}
-function renderDetalhe() {
-  const it = E.itens.find(i => i.id === detId); if (!it) return fecharPaineis();
-  const v = vistos(it), tot = totalEps(it), p = it.tipo !== 'filme' && proximo(it);
-  let corpo = '';
-  if (it.tipo === 'filme') {
-    corpo = `<div class="filme-ok"><button class="${it.visto ? '' : 'primario'}" data-a="filme">${it.visto ? '✓ Assistido em ' + quando(it.visto) + ' (desmarcar)' : 'Marcar como assistido'}</button></div>`;
-  } else {
-    if (detTemp > it.temporadas.length) detTemp = it.temporadas.length;
-    const n = it.temporadas[detTemp - 1];
-    const vt = Array.from({ length: n }, (_, j) => it.eps[chaveEp(detTemp, j + 1)]).filter(Boolean).length;
-    let lis = '';
-    for (let e = 1; e <= n; e++) {
-      const k = chaveEp(detTemp, e), ok = it.eps[k], nome = (it.nomes && it.nomes[k]) || 'Episódio ' + e;
-      lis += `<li class="ep${ok ? ' ok' : ''}${it.recente === k ? ' recente' : ''}" data-a="ep" data-e="${e}">
-        <span class="num">${e}</span><span class="nome">${esc(nome)}</span>
-        ${ok ? `<span class="quando">${quando(ok)}</span>` : `<button class="ate discreto" data-a="ate" data-e="${e}" title="Marcar todos até este">até aqui</button>`}
-        <span class="marca">✓</span></li>`;
-    }
-    corpo = `
-      <div class="temps">${it.temporadas.map((nn, i) => `<button data-a="temp" data-t="${i + 1}" class="${i + 1 === detTemp ? 'ativa' : ''}">Temporada ${i + 1}</button>`).join('')}
-        <button data-a="tempMais" class="discreto" title="Adicionar temporada">+</button></div>
-      <div class="det-acao" style="padding-top:10px">
-        <button data-a="tempTudo">${vt === n ? 'Desmarcar temporada' : 'Marcar temporada toda'}</button>
-        <button data-a="epMais" class="discreto">+ episódio</button>
-      </div>
-      <ul class="eps">${lis}</ul>`;
-  }
-  $('#detalhe').innerHTML = `
-    <div class="det-topo">
-      ${capaHtml(it)}
-      <div class="det-info">
-        <span class="tag">${TIPOS[it.tipo]}${it.ano ? ' · ' + esc(it.ano) : ''}</span>
-        <h2>${esc(it.titulo)}</h2>
-        <div class="sub">${it.tipo === 'filme' ? (it.visto ? 'Assistido' : 'Não assistido') : `${v} de ${tot} episódios` + (p ? ` · próximo: ${esc(rotuloEp(it, p.t, p.e))}` : ' · em dia')}</div>
-        ${it.sinopse ? `<div class="sinopse">${esc(it.sinopse)}</div>` : ''}
-      </div>
-      <button class="fechar" data-fechar aria-label="Fechar">✕</button>
-    </div>
-    ${p ? `<div class="det-acao"><button class="primario" data-a="proximo">✓ Marcar ${esc(`T${p.t} E${p.e}`)} como visto</button></div>` : ''}
-    ${corpo}
-    <details class="det-rodape">
-      <summary>Editar</summary>
-      <label class="bloco">Título <input data-campo="titulo" value="${esc(it.titulo)}"></label>
-      <label class="bloco">Nomes que aparecem na Brasil TV (separados por vírgula)
-        <input data-campo="apelidos" value="${esc((it.apelidos || []).join(', '))}" placeholder="Ex.: Sousou no Frieren"></label>
-      <div class="linha"><select data-campo="tipo">${Object.entries(TIPOS).map(([k, n]) => `<option value="${k}" ${k === it.tipo ? 'selected' : ''}>${n}</option>`).join('')}</select>
-        <button data-a="remover" class="perigo">Remover da lista</button></div>
-    </details>`;
-}
-$('#detalhe').addEventListener('click', ev => {
-  const alvo = ev.target.closest('[data-a]'); if (!alvo) return;
-  ev.stopPropagation();
-  const it = E.itens.find(i => i.id === detId); if (!it) return;
-  const a = alvo.dataset.a, e = +alvo.dataset.e, t = detTemp, agora = Date.now();
-  if (a === 'filme') it.visto = it.visto ? null : agora;
-  else if (a === 'ep') { const k = chaveEp(t, e); if (it.eps[k]) delete it.eps[k]; else { it.eps[k] = agora; it.recente = k; } }
-  else if (a === 'ate') {
-    for (let tt = 1; tt <= t; tt++) for (let ee = 1; ee <= (tt < t ? it.temporadas[tt - 1] : e); ee++) { const k = chaveEp(tt, ee); if (!it.eps[k]) it.eps[k] = agora; }
-    it.recente = chaveEp(t, e);
-  } else if (a === 'proximo') { const p = proximo(it); if (p) { it.eps[chaveEp(p.t, p.e)] = agora; it.recente = chaveEp(p.t, p.e); detTemp = p.t; } }
-  else if (a === 'temp') { detTemp = +alvo.dataset.t; return renderDetalhe(); }
-  else if (a === 'tempTudo') {
-    const n = it.temporadas[t - 1], todos = Array.from({ length: n }, (_, j) => it.eps[chaveEp(t, j + 1)]).every(Boolean);
-    for (let j = 1; j <= n; j++) { const k = chaveEp(t, j); if (todos) delete it.eps[k]; else if (!it.eps[k]) it.eps[k] = agora; }
-  } else if (a === 'epMais') it.temporadas[t - 1]++;
-  else if (a === 'tempMais') { it.temporadas.push(it.temporadas[it.temporadas.length - 1] || 12); detTemp = it.temporadas.length; }
-  else if (a === 'remover') {
-    if (!confirm(`Remover "${it.titulo}" e o histórico dele?`)) return;
-    E.itens = E.itens.filter(x => x !== it); salvar(); fecharPaineis(); return render();
-  } else return;
-  it.atualizado = agora; salvar(); render();
-});
-$('#detalhe').addEventListener('change', ev => {
-  const c = ev.target.dataset.campo; if (!c) return;
-  const it = E.itens.find(i => i.id === detId); if (!it) return;
-  const v = ev.target.value.trim();
-  if (c === 'titulo' && v) it.titulo = v;
-  if (c === 'apelidos') it.apelidos = v.split(',').map(s => s.trim()).filter(Boolean);
-  if (c === 'tipo') { it.tipo = v; if (v !== 'filme' && !it.temporadas.length) it.temporadas = [12]; }
-  salvar(); render(); avisar('Salvo.');
-});
-
-// ---------- recebidos ----------
-function renderRecebidos() {
-  const pend = E.recebidos.filter(r => !r.resolvido);
-  const b = $('#contRecebidos'); b.hidden = !pend.length; b.textContent = pend.length;
-  const el = $('#recebidos');
-  if (!E.recebidos.length) { el.innerHTML = '<p class="vazio">Nada recebido ainda.</p>'; return; }
-  const opcoes = E.itens.map(it => `<option value="${it.id}">${esc(it.titulo)}</option>`).join('');
-  el.innerHTML = E.recebidos.slice().reverse().slice(0, 100).map(r => `
-    <div class="receb" data-rid="${esc(r.id)}">
-      <div class="txt">${esc(r.texto)}<small>${quando(r.ts)} · ${r.resolvido ? '✓ ' + esc(r.resolvido) : 'não reconhecido'}</small></div>
-      ${r.resolvido ? '' : `<select data-acao="ligar"><option value="">Ligar a…</option>${opcoes}</select><button data-acao="ignorar">Ignorar</button>`}
-    </div>`).join('');
-}
-$('#recebidos').addEventListener('change', ev => {
-  const sel = ev.target.closest('select[data-acao="ligar"]'); if (!sel || !sel.value) return;
-  const r = E.recebidos.find(x => x.id === sel.closest('.receb').dataset.rid);
-  const it = E.itens.find(x => x.id === sel.value); if (!r || !it) return;
-  const p = interpretar(r.texto);
-  if (p.titulo && normalizar(p.titulo) !== normalizar(it.titulo) && !(it.apelidos || []).some(n => normalizar(n) === normalizar(p.titulo)))
-    (it.apelidos = it.apelidos || []).push(p.titulo); // aprende o nome que a TV usa
-  r.resolvido = aplicarAviso(r.texto, r.ts, it) || it.titulo;
-  // reaplica outros avisos pendentes que agora batem
-  for (const o of E.recebidos) if (!o.resolvido) o.resolvido = aplicarAviso(o.texto, o.ts);
-  salvar(); render(); avisar('Marcado: ' + r.resolvido);
-});
-$('#recebidos').addEventListener('click', ev => {
-  if (!ev.target.matches('[data-acao="ignorar"]')) return;
-  const r = E.recebidos.find(x => x.id === ev.target.closest('.receb').dataset.rid);
-  if (r) { r.resolvido = 'ignorado'; salvar(); renderRecebidos(); }
-});
-
-// ---------- ajustes ----------
-const urlCanal = () => E.cfg.servidor.replace(/\/+$/, '') + '/' + encodeURIComponent(E.cfg.topico);
-function renderAjustes() {
-  if (document.activeElement !== $('#cfgTopico')) $('#cfgTopico').value = E.cfg.topico;
-  if (document.activeElement !== $('#cfgServidor')) $('#cfgServidor').value = E.cfg.servidor;
-  $('#cfgAtivo').checked = E.cfg.ativo;
-  $('#cfgUrl').textContent = urlCanal();
-}
-$('.abas').addEventListener('click', ev => {
-  const b = ev.target.closest('button[data-aba]'); if (!b) return;
-  document.querySelectorAll('.abas button').forEach(x => x.classList.toggle('ativa', x === b));
-  ['lista', 'recebidos', 'ajustes'].forEach(a => ($('#aba-' + a).hidden = a !== b.dataset.aba));
-});
-$('#cfgTopico').addEventListener('change', ev => { const v = ev.target.value.trim(); if (v) { E.cfg.topico = v; E.cfg.ultimoId = null; salvar(); renderAjustes(); buscarAvisos(); } });
-$('#cfgServidor').addEventListener('change', ev => {
-  const v = ev.target.value.trim();
-  if (/^https:\/\//.test(v)) { E.cfg.servidor = v; E.cfg.ultimoId = null; salvar(); renderAjustes(); buscarAvisos(); } else avisar('O servidor precisa começar com https://');
-});
-$('#cfgAtivo').addEventListener('change', ev => { E.cfg.ativo = ev.target.checked; salvar(); ciclo(); });
-$('#btnTeste').addEventListener('click', async () => {
-  const txt = $('#testeTexto').value.trim(); if (!txt) return;
-  $('#testeResultado').textContent = 'Enviando…';
-  try {
-    const r = await fetch(urlCanal(), { method: 'POST', body: txt });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    await buscarAvisos();
-    $('#testeResultado').textContent = 'Enviado e recebido.';
-  } catch (e) { $('#testeResultado').textContent = 'Falhou: ' + e.message; }
-});
-$('#btnExportar').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(E, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'assistidos-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-});
-$('#arqImportar').addEventListener('change', async ev => {
-  const f = ev.target.files[0]; if (!f) return;
-  try {
-    const d = JSON.parse(await f.text());
-    if (!Array.isArray(d.itens)) throw new Error('arquivo sem lista');
-    if (!confirm(`Substituir a lista atual por ${d.itens.length} títulos do arquivo?`)) return;
-    const base = estadoInicial();
-    E = { ...base, ...d, cfg: { ...base.cfg, ...(d.cfg || {}) }, recebidos: d.recebidos || [] };
-    migrar(); salvar(); render(); avisar('Lista importada.');
-  } catch (e) { avisar('Arquivo inválido: ' + e.message); }
-  ev.target.value = '';
-});
-
 // ---------- cadastro automático do que a box mandou ----------
 /* Título novo vindo da box: procura no catálogo e cadastra sozinho.
    Se o catálogo não tiver, cadastra só com o nome da TV. O nome da TV vira apelido. */
@@ -542,12 +248,17 @@ async function buscarAvisos() {
     }
     if (E.recebidos.length > 300) E.recebidos = E.recebidos.slice(-300);
     salvar(); if (linhas.length) render();
-    if (marcados.length) avisar('Marcado pela box: ' + marcados.join(', '));
+    if (marcados.length) avisar('Da TV: ' + marcados.join(', '));
     status('box conectada', 'on');
   } catch (e) { status('box sem conexão', 'erro'); }
   finally { buscando = false; }
 }
-function status(txt, classe) { const s = $('#status'); s.textContent = '● ' + txt; s.className = 'status ' + (classe || ''); }
+function status(txt, classe) {
+  const mudou = statusBox.classe !== (classe || '');
+  statusBox = { txt: txt.replace(/^box /, 'TV '), classe: classe || '' };
+  document.querySelectorAll('.ponto').forEach(p => (p.className = 'ponto ' + statusBox.classe));
+  if (mudou && tela === 'ajustes') render();
+}
 let timer;
 function ciclo() {
   clearInterval(timer);
@@ -562,4 +273,392 @@ function migrar() {
   if (!E.cfg.canalV2) { if (/^assistidos-[a-z0-9]{9}$/.test(E.cfg.topico) && E.cfg.topico !== TOPICO_PADRAO) { E.cfg.topico = TOPICO_PADRAO; E.cfg.ultimoId = null; } E.cfg.canalV2 = true; }
   for (const it of E.itens) { it.eps = it.eps || {}; it.nomes = it.nomes || {}; it.apelidos = it.apelidos || []; it.temporadas = it.temporadas || []; }
 }
-migrar(); salvar(); render(); ciclo();
+
+// =====================================================================
+// interface
+// =====================================================================
+const ICONE = {
+  inicio: '<svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
+  serie: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="m8 2 4 4 4-4"/></svg>',
+  anime: '<svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z"/></svg>',
+  filme: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>',
+  buscar: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+  ajustes: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  voltar: '<svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
+  mais: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  tv: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/></svg>',
+};
+const NAV = [['inicio', 'Início'], ['serie', 'Séries'], ['anime', 'Animes'], ['filme', 'Filmes'], ['buscar', 'Buscar']];
+const PLURAL = { serie: 'Séries', anime: 'Animes', filme: 'Filmes' };
+
+let tela = 'inicio', subaba = { serie: 'assistindo', anime: 'assistindo', filme: 'assistir' };
+let detId = null, detTemp = 1, statusBox = { txt: 'conectando…', classe: '' };
+const urlCanal = () => E.cfg.servidor.replace(/\/+$/, '') + '/' + encodeURIComponent(E.cfg.topico);
+
+function estado(it) {
+  if (it.tipo === 'filme') return it.visto ? 'concluido' : 'assistir';
+  return vistos(it) === 0 ? 'assistir' : proximo(it) ? 'assistindo' : 'concluido';
+}
+const pad2 = n => String(n).padStart(2, '0');
+function capa(it, classe = 'capa') {
+  if (it.capa) return `<img class="${classe}" src="${esc(it.capa)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+  return `<div class="${classe} sem-capa"><span>${esc((it.titulo || '?').trim().slice(0, 2))}</span></div>`;
+}
+const porRecente = (a, b) => (b.atualizado || b.criado) - (a.atualizado || a.criado);
+
+function render() {
+  document.querySelectorAll('[data-tela]').forEach(b => b.classList.toggle('ativa', b.dataset.tela === tela));
+  const v = $('#view');
+  v.innerHTML = tela === 'inicio' ? telaInicio() : tela === 'buscar' ? telaBuscar() : tela === 'ajustes' ? telaAjustes() : telaSecao(tela);
+  if (tela === 'buscar') posBuscar();
+  if (detId) renderDetalhe();
+}
+function irPara(t) {
+  tela = t; window.scrollTo(0, 0); render();
+  if (t === 'buscar') setTimeout(() => { const i = $('#qCat'); if (i) i.focus(); }, 30);
+}
+document.addEventListener('click', ev => {
+  const n = ev.target.closest('[data-tela]'); if (n) { ev.preventDefault(); return irPara(n.dataset.tela); }
+});
+
+function cabecalho(titulo, extra = '') {
+  return `<header class="cab">
+    <h1>${titulo}</h1>
+    <div class="cab-acoes">${extra}
+      <button class="icone-btn" data-tela="ajustes" aria-label="Ajustes">${ICONE.ajustes}<i class="ponto ${statusBox.classe}"></i></button>
+    </div></header>`;
+}
+
+// ---------- início ----------
+function telaInicio() {
+  const busca = `<button class="pilula-busca" data-tela="buscar">${ICONE.buscar}<span>Buscar séries, animes e filmes</span></button>`;
+  if (!E.itens.length) {
+    return cabecalho('<span class="marca">Assistidos</span>') + busca + `
+      <section class="vazio-grande">
+        <div class="vazio-icone">${ICONE.tv}</div>
+        <h2>Comece a sua lista</h2>
+        <p>Abra um episódio na Brasil TV e ele aparece aqui sozinho. Ou busque um título para adicionar.</p>
+        <button class="btn primario" data-tela="buscar">Buscar um título</button>
+      </section>`;
+  }
+  const ass = E.itens.filter(i => estado(i) === 'assistindo').sort(porRecente);
+  const fila = E.itens.filter(i => estado(i) === 'assistir').sort(porRecente);
+  const fim = E.itens.filter(i => estado(i) === 'concluido').sort(porRecente);
+  const totalVistos = E.itens.reduce((a, i) => a + vistos(i), 0);
+  return cabecalho('<span class="marca">Assistidos</span>') + busca + `
+    <div class="resumo">
+      <div><b>${ass.length}</b><span>assistindo</span></div>
+      <div><b>${totalVistos}</b><span>episódios vistos</span></div>
+      <div><b>${fim.length}</b><span>concluídos</span></div>
+    </div>
+    ${ass.length ? `<section class="faixa"><h2>Continuar assistindo</h2><div class="trilho">${ass.map(cartaoContinuar).join('')}</div></section>` : ''}
+    ${fila.length ? `<section class="faixa"><h2>Quero ver</h2><div class="trilho">${fila.map(cartaoPoster).join('')}</div></section>` : ''}
+    ${fim.length ? `<section class="faixa"><h2>Concluídos</h2><div class="trilho">${fim.map(cartaoPoster).join('')}</div></section>` : ''}`;
+}
+function cartaoContinuar(it) {
+  const p = it.tipo !== 'filme' && proximo(it), tot = totalEps(it), v = vistos(it);
+  const nome = p && it.nomes && it.nomes[chaveEp(p.t, p.e)];
+  return `<article class="continuar" data-det="${it.id}">
+    ${capa(it)}
+    <div class="continuar-info">
+      <span class="chip">${esc(it.titulo)}</span>
+      ${p ? `<b class="epnum">T${pad2(p.t)} | E${pad2(p.e)}</b><small>${esc(nome || 'Próximo episódio')}</small>` : '<b class="epnum">Em dia</b>'}
+      <div class="progresso"><i style="width:${Math.round(v / tot * 100)}%"></i></div>
+      <small class="fraco">${v} de ${tot} · faltam ${tot - v}</small>
+    </div>
+    ${p ? `<button class="marcar" data-marcar="${it.id}" aria-label="Marcar T${p.t} E${p.e} como visto">${ICONE.check}</button>` : ''}
+  </article>`;
+}
+function cartaoPoster(it) {
+  const tot = totalEps(it), v = vistos(it);
+  return `<article class="poster" data-det="${it.id}">
+    <div class="poster-img">${capa(it)}${v && v < tot ? `<div class="progresso fino"><i style="width:${Math.round(v / tot * 100)}%"></i></div>` : ''}
+      ${estado(it) === 'concluido' ? `<span class="selo">${ICONE.check}</span>` : ''}</div>
+    <b>${esc(it.titulo)}</b><small>${TIPOS[it.tipo]}${it.ano ? ' · ' + esc(it.ano) : ''}</small>
+  </article>`;
+}
+
+// ---------- seções ----------
+function telaSecao(tipo) {
+  const itens = E.itens.filter(i => i.tipo === tipo);
+  const grupos = { assistir: [], assistindo: [], concluido: [] };
+  itens.sort(porRecente).forEach(i => grupos[estado(i)].push(i));
+  const abas = tipo === 'filme' ? [['assistir', 'Quero ver'], ['concluido', 'Assistidos']] : [['assistir', 'Quero ver'], ['assistindo', 'Assistindo'], ['concluido', 'Concluídos']];
+  if (!abas.some(a => a[0] === subaba[tipo])) subaba[tipo] = abas[0][0];
+  const lista = grupos[subaba[tipo]];
+  return cabecalho(PLURAL[tipo], `<button class="icone-btn" data-tela="buscar" aria-label="Adicionar">${ICONE.mais}</button>`) + `
+    <div class="segmentos">${abas.map(([k, n]) => `<button data-sub="${k}" class="${subaba[tipo] === k ? 'ativa' : ''}">${n}<span>${grupos[k].length}</span></button>`).join('')}</div>
+    ${lista.length ? `<div class="linhas">${lista.map(linhaItem).join('')}</div>`
+      : `<div class="vazio">${itens.length ? 'Nada aqui.' : `Nenhum ${TIPOS[tipo].toLowerCase()} na lista ainda.`}<br><button class="btn" data-tela="buscar">Buscar ${TIPOS[tipo].toLowerCase()}</button></div>`}`;
+}
+function linhaItem(it) {
+  const tot = totalEps(it), v = vistos(it);
+  if (it.tipo === 'filme') {
+    return `<article class="linha-item" data-det="${it.id}">${capa(it)}
+      <div class="li-info"><span class="chip">${esc(it.titulo)}</span><b class="epnum">${esc(it.ano || 'Filme')}</b>
+        <small>${it.visto ? 'Assistido em ' + quando(it.visto) : 'Ainda não assistido'}</small></div>
+      <button class="marcar ${it.visto ? 'feito' : ''}" data-marcar="${it.id}" aria-label="Assistido">${ICONE.check}</button></article>`;
+  }
+  const p = proximo(it), nome = p && it.nomes && it.nomes[chaveEp(p.t, p.e)];
+  return `<article class="linha-item" data-det="${it.id}">${capa(it)}
+    <div class="li-info"><span class="chip">${esc(it.titulo)}</span>
+      ${p ? `<b class="epnum">T${pad2(p.t)} | E${pad2(p.e)} <em>+${tot - v - 1 > 0 ? tot - v - 1 : 0}</em></b><small>${esc(nome || 'Episódio ' + p.e)}</small>` : `<b class="epnum">Concluído</b><small>${tot} episódios</small>`}
+      <div class="progresso"><i style="width:${Math.round(v / tot * 100)}%"></i></div></div>
+    ${p ? `<button class="marcar" data-marcar="${it.id}" aria-label="Marcar próximo">${ICONE.check}</button>` : `<span class="marcar feito">${ICONE.check}</span>`}
+  </article>`;
+}
+
+// ---------- buscar ----------
+let tipoBusca = 'serie', textoBusca = '', resultados = [], seqBusca = 0, timerBusca, estadoBusca = '';
+function telaBuscar() {
+  const meus = textoBusca.length >= 2 ? E.itens.filter(i => normalizar([i.titulo, ...i.apelidos].join(' ')).includes(normalizar(textoBusca))) : [];
+  return cabecalho('Buscar') + `
+    <label class="pilula-busca campo">${ICONE.buscar}<input id="qCat" type="search" placeholder="${tipoBusca === 'filme' ? 'Nome do filme' : 'Nome da série ou anime'}" value="${esc(textoBusca)}" autocomplete="off"></label>
+    <div class="chips"><button data-tb="serie" class="${tipoBusca === 'serie' ? 'ativa' : ''}">Séries e animes</button><button data-tb="filme" class="${tipoBusca === 'filme' ? 'ativa' : ''}">Filmes</button></div>
+    ${meus.length ? `<section class="faixa"><h2>Na sua lista</h2><div class="trilho">${meus.map(cartaoPoster).join('')}</div></section>` : ''}
+    <section class="faixa"><div id="resultados" class="grade"></div></section>
+    <details class="manual"><summary>Não achou? Adicionar sem buscar</summary>
+      <form id="formNovo">
+        <input id="novoTitulo" required placeholder="Título" autocomplete="off">
+        <div class="linha"><select id="novoTipo"><option value="serie">Série</option><option value="anime">Anime</option><option value="filme">Filme</option></select>
+        <label>Temporadas <input id="novoTemps" type="number" min="1" value="1"></label>
+        <label>Episódios <input id="novoEps" type="number" min="1" value="12"></label></div>
+        <button type="submit" class="btn primario">Adicionar</button>
+      </form></details>`;
+}
+function posBuscar() { desenharResultados(); }
+function desenharResultados() {
+  const el = $('#resultados'); if (!el) return;
+  if (textoBusca.trim().length < 2) { el.innerHTML = '<p class="dica">Digite o nome para buscar no catálogo. A capa, as temporadas e os episódios vêm juntos.</p>'; return; }
+  if (estadoBusca === 'carregando') { el.innerHTML = Array(6).fill('<div class="poster esqueleto"><div class="poster-img"></div><b></b></div>').join(''); return; }
+  if (estadoBusca === 'erro') { el.innerHTML = '<p class="dica">Não consegui buscar agora. Confira a internet ou use "adicionar sem buscar".</p>'; return; }
+  if (!resultados.length) { el.innerHTML = '<p class="dica">Nada encontrado. Tente o nome em inglês ou original.</p>'; return; }
+  const jaTem = new Map(E.itens.map(i => [i.fonte + ':' + i.fid, i.id]));
+  el.innerHTML = resultados.map((x, i) => `<article class="poster resultado" data-res="${i}">
+    <div class="poster-img">${x.capa ? `<img class="capa" src="${esc(x.capa)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="capa sem-capa"><span>${esc(x.titulo.slice(0, 2))}</span></div>`}
+      <span class="selo ${jaTem.has(x.fonte + ':' + x.fid) ? '' : 'add'}">${jaTem.has(x.fonte + ':' + x.fid) ? ICONE.check : ICONE.mais}</span></div>
+    <b>${esc(x.titulo)}</b><small>${[TIPOS[x.tipo], x.ano].filter(Boolean).map(esc).join(' · ')}</small></article>`).join('');
+}
+async function pesquisar() {
+  const q = textoBusca.trim(), seq = ++seqBusca;
+  if (q.length < 2) { resultados = []; estadoBusca = ''; return desenharResultados(); }
+  estadoBusca = 'carregando'; desenharResultados();
+  try {
+    const r = tipoBusca === 'filme' ? await buscarFilmes(q) : await buscarSeries(q);
+    if (seq !== seqBusca) return;
+    resultados = r; estadoBusca = 'ok';
+  } catch (e) { if (seq !== seqBusca) return; estadoBusca = 'erro'; }
+  desenharResultados();
+}
+document.addEventListener('input', ev => {
+  if (ev.target.id === 'qCat') { textoBusca = ev.target.value; clearTimeout(timerBusca); timerBusca = setTimeout(pesquisar, 350); }
+});
+async function adicionarResultado(x, cartao) {
+  const existente = E.itens.find(i => i.fonte === x.fonte && i.fid === x.fid);
+  if (existente) return abrirDetalhe(existente.id);
+  if (cartao) cartao.classList.add('carregando');
+  const it = {
+    id: novoId(), tipo: x.tipo, titulo: x.titulo, apelidos: (x.apelidos || []).filter(n => n !== x.titulo),
+    capa: x.capa || null, ano: x.ano || '', sinopse: x.sinopse || '', fonte: x.fonte, fid: x.fid,
+    temporadas: [], nomes: {}, eps: {}, visto: null, criado: Date.now(),
+  };
+  if (x.tipo !== 'filme') {
+    try { if (x.fonte === 'tvmaze') Object.assign(it, await detalhesTvmaze(x.fid)); } catch (e) { /* segue */ }
+    if (!it.temporadas.length) it.temporadas = [x.eps || 12];
+  }
+  E.itens.push(it); salvar(); render(); abrirDetalhe(it.id);
+  avisar(`${it.titulo} entrou na lista`);
+}
+
+// ---------- detalhe ----------
+function abrirDetalhe(id) {
+  const it = E.itens.find(i => i.id === id); if (!it) return;
+  detId = id; const p = it.tipo !== 'filme' && proximo(it); detTemp = p ? p.t : 1;
+  $('#sheet').hidden = false; document.body.classList.add('travado'); renderDetalhe();
+  $('#sheet').scrollTop = 0;
+}
+function fecharDetalhe() { detId = null; $('#sheet').hidden = true; document.body.classList.remove('travado'); }
+function renderDetalhe() {
+  const it = E.itens.find(i => i.id === detId); if (!it) return fecharDetalhe();
+  const v = vistos(it), tot = totalEps(it), p = it.tipo !== 'filme' && proximo(it);
+  const fundo = it.capa ? `style="--fundo-img:url('${esc(it.capa)}')"` : '';
+  let corpo;
+  if (it.tipo === 'filme') {
+    corpo = `<div class="acao-principal"><button class="btn ${it.visto ? '' : 'primario'} largo" data-a="filme">${it.visto ? ICONE.check + ' Assistido em ' + quando(it.visto) : 'Marcar como assistido'}</button></div>`;
+  } else {
+    if (detTemp > it.temporadas.length) detTemp = it.temporadas.length;
+    const n = it.temporadas[detTemp - 1];
+    const vt = Array.from({ length: n }, (_, j) => it.eps[chaveEp(detTemp, j + 1)]).filter(Boolean).length;
+    let lis = '';
+    for (let e = 1; e <= n; e++) {
+      const k = chaveEp(detTemp, e), ok = it.eps[k], nome = (it.nomes && it.nomes[k]) || 'Episódio ' + e;
+      lis += `<li class="ep${ok ? ' ok' : ''}${it.recente === k ? ' recente' : ''}" data-a="ep" data-e="${e}">
+        <span class="ep-num">${pad2(e)}</span>
+        <span class="ep-txt"><b>${esc(nome)}</b>${ok ? `<small>visto em ${quando(ok)}</small>` : ''}</span>
+        ${ok ? '' : `<button class="ate" data-a="ate" data-e="${e}">até aqui</button>`}
+        <span class="marcar mini ${ok ? 'feito' : ''}">${ICONE.check}</span></li>`;
+    }
+    corpo = `
+      ${p ? `<div class="acao-principal"><button class="btn primario largo" data-a="proximo">${ICONE.check} Marcar T${pad2(p.t)} | E${pad2(p.e)}${it.nomes && it.nomes[chaveEp(p.t, p.e)] ? ' · ' + esc(it.nomes[chaveEp(p.t, p.e)]) : ''}</button></div>` : ''}
+      <div class="temps">${it.temporadas.map((nn, i) => {
+        const vv = Array.from({ length: nn }, (_, j) => it.eps[chaveEp(i + 1, j + 1)]).filter(Boolean).length;
+        return `<button data-a="temp" data-t="${i + 1}" class="${i + 1 === detTemp ? 'ativa' : ''} ${vv === nn ? 'completa' : ''}">Temporada ${i + 1}<small>${vv}/${nn}</small></button>`;
+      }).join('')}<button data-a="tempMais" class="discreto" aria-label="Adicionar temporada">${ICONE.mais}</button></div>
+      <div class="temp-acoes"><span>${vt} de ${n} vistos</span>
+        <span><button class="link" data-a="epMais">+ episódio</button><button class="link" data-a="tempTudo">${vt === n ? 'Desmarcar todos' : 'Marcar todos'}</button></span></div>
+      <ul class="eps">${lis}</ul>`;
+  }
+  $('#sheet').innerHTML = `
+    <div class="det" ${fundo}>
+      <div class="det-fundo"></div>
+      <div class="det-barra"><button class="icone-btn" data-a="fechar" aria-label="Voltar">${ICONE.voltar}</button></div>
+      <div class="det-topo">
+        ${capa(it)}
+        <div class="det-tit">
+          <h2>${esc(it.titulo)}</h2>
+          <p>${[TIPOS[it.tipo], it.ano, it.tipo !== 'filme' ? it.temporadas.length + (it.temporadas.length > 1 ? ' temporadas' : ' temporada') : ''].filter(Boolean).map(esc).join(' · ')}</p>
+          ${it.automatico ? '<span class="chip suave">adicionado pela TV</span>' : ''}
+        </div>
+      </div>
+      ${it.tipo !== 'filme' ? `<div class="stats">
+        <div><b>${tot}</b><span>episódios</span></div><div><b>${v}</b><span>vistos</span></div><div><b>${tot - v}</b><span>faltam</span></div>
+        <div><b>${Math.round(v / tot * 100)}%</b><span>progresso</span></div></div>` : ''}
+      ${it.sinopse ? `<p class="sinopse" data-a="sinopse">${esc(it.sinopse)}</p>` : ''}
+      ${corpo}
+      <details class="editar"><summary>Editar</summary>
+        <label>Título <input data-campo="titulo" value="${esc(it.titulo)}"></label>
+        <label>Nomes que aparecem na Brasil TV <input data-campo="apelidos" value="${esc((it.apelidos || []).join(', '))}" placeholder="Separados por vírgula"></label>
+        <label>Tipo <select data-campo="tipo">${Object.entries(TIPOS).map(([k, n]) => `<option value="${k}" ${k === it.tipo ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <button class="btn perigo" data-a="remover">Remover da lista</button>
+      </details>
+    </div>`;
+}
+function marcarProximo(it) {
+  const agora = Date.now();
+  if (it.tipo === 'filme') it.visto = it.visto ? null : agora;
+  else { const p = proximo(it); if (!p) return; it.eps[chaveEp(p.t, p.e)] = agora; it.recente = chaveEp(p.t, p.e); avisar(`${it.titulo}: T${p.t} E${p.e} visto`); }
+  it.atualizado = agora; salvar(); render();
+}
+document.addEventListener('click', ev => {
+  const m = ev.target.closest('[data-marcar]');
+  if (m) { ev.stopPropagation(); const it = E.itens.find(i => i.id === m.dataset.marcar); if (it) marcarProximo(it); return; }
+  const r = ev.target.closest('[data-res]');
+  if (r) return adicionarResultado(resultados[+r.dataset.res], r);
+  const d = ev.target.closest('[data-det]'); if (d) return abrirDetalhe(d.dataset.det);
+  const s = ev.target.closest('[data-sub]'); if (s) { subaba[tela] = s.dataset.sub; return render(); }
+  const tb = ev.target.closest('[data-tb]'); if (tb) { tipoBusca = tb.dataset.tb; render(); pesquisar(); return; }
+});
+$('#sheet').addEventListener('click', ev => {
+  if (ev.target === $('#sheet')) return fecharDetalhe();
+  const alvo = ev.target.closest('[data-a]'); if (!alvo) return;
+  ev.stopPropagation();
+  const it = E.itens.find(i => i.id === detId); if (!it) return;
+  const a = alvo.dataset.a, e = +alvo.dataset.e, t = detTemp, agora = Date.now();
+  if (a === 'fechar') return fecharDetalhe();
+  if (a === 'sinopse') return alvo.classList.toggle('aberta');
+  if (a === 'filme') it.visto = it.visto ? null : agora;
+  else if (a === 'ep') { const k = chaveEp(t, e); if (it.eps[k]) delete it.eps[k]; else { it.eps[k] = agora; it.recente = k; } }
+  else if (a === 'ate') {
+    for (let tt = 1; tt <= t; tt++) for (let ee = 1; ee <= (tt < t ? it.temporadas[tt - 1] : e); ee++) { const k = chaveEp(tt, ee); if (!it.eps[k]) it.eps[k] = agora; }
+    it.recente = chaveEp(t, e);
+  } else if (a === 'proximo') { const p = proximo(it); if (p) { it.eps[chaveEp(p.t, p.e)] = agora; it.recente = chaveEp(p.t, p.e); detTemp = proximo(it) ? proximo(it).t : p.t; } }
+  else if (a === 'temp') { detTemp = +alvo.dataset.t; return renderDetalhe(); }
+  else if (a === 'tempTudo') {
+    const n = it.temporadas[t - 1], todos = Array.from({ length: n }, (_, j) => it.eps[chaveEp(t, j + 1)]).every(Boolean);
+    for (let j = 1; j <= n; j++) { const k = chaveEp(t, j); if (todos) delete it.eps[k]; else if (!it.eps[k]) it.eps[k] = agora; }
+  } else if (a === 'epMais') it.temporadas[t - 1]++;
+  else if (a === 'tempMais') { it.temporadas.push(it.temporadas[it.temporadas.length - 1] || 12); detTemp = it.temporadas.length; }
+  else if (a === 'remover') {
+    if (!confirm(`Remover "${it.titulo}" da lista?`)) return;
+    E.itens = E.itens.filter(x => x !== it); salvar(); fecharDetalhe(); return render();
+  } else return;
+  it.atualizado = agora; salvar(); render();
+});
+$('#sheet').addEventListener('change', ev => {
+  const c = ev.target.dataset.campo; if (!c) return;
+  const it = E.itens.find(i => i.id === detId); if (!it) return;
+  const v = ev.target.value.trim();
+  if (c === 'titulo' && v) it.titulo = v;
+  if (c === 'apelidos') it.apelidos = v.split(',').map(s => s.trim()).filter(Boolean);
+  if (c === 'tipo') { it.tipo = v; if (v !== 'filme' && !it.temporadas.length) it.temporadas = [12]; }
+  salvar(); render(); avisar('Salvo');
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && detId) fecharDetalhe(); });
+document.addEventListener('submit', ev => {
+  if (ev.target.id !== 'formNovo') return;
+  ev.preventDefault();
+  const titulo = $('#novoTitulo').value.trim(); if (!titulo) return;
+  const tipo = $('#novoTipo').value;
+  const nt = Math.max(1, Math.min(99, +$('#novoTemps').value || 1)), ne = Math.max(1, Math.min(2000, +$('#novoEps').value || 1));
+  const it = { id: novoId(), tipo, titulo, apelidos: [], capa: null, ano: '', sinopse: '', fonte: 'manual', fid: null,
+    temporadas: tipo === 'filme' ? [] : Array(nt).fill(ne), nomes: {}, eps: {}, visto: null, criado: Date.now() };
+  E.itens.push(it); salvar(); render(); abrirDetalhe(it.id);
+});
+
+// ---------- ajustes (a parte da box fica aqui, recolhida) ----------
+function telaAjustes() {
+  const ult = E.recebidos.slice(-1)[0];
+  return cabecalho('Ajustes') + `
+    <section class="painel-aj">
+      <div class="aj-linha"><div><b>Marcar sozinho pela TV</b><small>${statusBox.txt}${ult ? ' · último aviso ' + quando(ult.ts) : ''}</small></div>
+        <label class="chave"><input type="checkbox" id="cfgAtivo" ${E.cfg.ativo ? 'checked' : ''}><i></i></label></div>
+    </section>
+    <section class="painel-aj">
+      <div class="aj-linha"><div><b>Cópia de segurança</b><small>A lista fica salva neste aparelho. Exporte para guardar ou levar para outro.</small></div></div>
+      <div class="linha"><button class="btn" id="btnExportar">Exportar</button><label class="btn">Importar<input id="arqImportar" type="file" accept="application/json" hidden></label></div>
+    </section>
+    <details class="painel-aj avancado"><summary>Avançado</summary>
+      <label>Canal da box <input id="cfgTopico" value="${esc(E.cfg.topico)}" spellcheck="false" autocomplete="off"></label>
+      <label>Servidor <input id="cfgServidor" value="${esc(E.cfg.servidor)}" spellcheck="false" autocomplete="off"></label>
+      <h3>Últimos avisos da TV</h3>
+      <div class="recebidos">${E.recebidos.length ? E.recebidos.slice().reverse().slice(0, 30).map(r => `<div class="rec"><span>${esc(r.texto)}</span><small>${quando(r.ts)} · ${r.resolvido ? esc(r.resolvido) : 'não reconhecido'}</small></div>`).join('') : '<p class="dica">Nenhum aviso ainda.</p>'}</div>
+      <h3>Testar</h3>
+      <div class="linha"><input id="testeTexto" placeholder="Ex.: Frieren T1 E5"><button class="btn" id="btnTeste">Enviar</button></div>
+      <p class="dica" id="testeResultado"></p>
+    </details>
+    <p class="rodape">Assistidos · catálogo de TVmaze, AniList e Wikipédia</p>`;
+}
+document.addEventListener('change', async ev => {
+  const id = ev.target.id;
+  if (id === 'cfgAtivo') { E.cfg.ativo = ev.target.checked; salvar(); ciclo(); render(); }
+  if (id === 'cfgTopico') { const v = ev.target.value.trim(); if (v) { E.cfg.topico = v; E.cfg.ultimoId = null; salvar(); buscarAvisos(); } }
+  if (id === 'cfgServidor') { const v = ev.target.value.trim(); if (/^https:\/\//.test(v)) { E.cfg.servidor = v; E.cfg.ultimoId = null; salvar(); buscarAvisos(); } else avisar('O servidor precisa começar com https://'); }
+  if (id === 'arqImportar') {
+    const f = ev.target.files[0]; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (!Array.isArray(d.itens)) throw new Error('arquivo sem lista');
+      if (!confirm(`Substituir a lista atual por ${d.itens.length} títulos do arquivo?`)) return;
+      const base = estadoInicial();
+      E = { ...base, ...d, cfg: { ...base.cfg, ...(d.cfg || {}) }, recebidos: d.recebidos || [] };
+      migrar(); salvar(); render(); avisar('Lista importada');
+    } catch (e) { avisar('Arquivo inválido: ' + e.message); }
+  }
+});
+document.addEventListener('click', async ev => {
+  if (ev.target.id === 'btnExportar') {
+    const blob = new Blob([JSON.stringify(E, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'assistidos-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  if (ev.target.id === 'btnTeste') {
+    const txt = $('#testeTexto').value.trim(); if (!txt) return;
+    $('#testeResultado').textContent = 'Enviando…';
+    try {
+      const r = await fetch(urlCanal(), { method: 'POST', body: txt });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      await buscarAvisos(); avisar('Teste enviado');
+    } catch (e) { const el = $('#testeResultado'); if (el) el.textContent = 'Falhou: ' + e.message; }
+  }
+});
+
+// ---------- navegação ----------
+function montarNav() {
+  const item = ([k, n]) => `<button class="nav-item" data-tela="${k}"><span class="ni">${ICONE[k]}</span><span>${n}</span></button>`;
+  $('#navLateral').innerHTML = NAV.map(item).join('') + item(['ajustes', 'Ajustes']);
+  $('#navBaixo').innerHTML = NAV.map(item).join('');
+}
+
+migrar(); salvar(); montarNav(); render(); ciclo();
