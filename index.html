@@ -5,13 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Assistidos</title>
 <meta name="description" content="Lista de séries, animes e filmes assistidos na Brasil TV">
+<meta name="theme-color" content="#0f0f13">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topo">
-  <h1>📺 Assistidos</h1>
-  <div class="status" id="status" title="Conexão com a box">● box: desligado</div>
+  <div class="topo-linha">
+    <h1>Assistidos</h1>
+    <span class="status" id="status" title="Ligação com a box">● box</span>
+    <button id="btnAdicionar" class="primario">+ Adicionar</button>
+  </div>
   <nav class="abas">
     <button data-aba="lista" class="ativa">Minha lista</button>
     <button data-aba="recebidos">Da box <span id="contRecebidos" class="bolha" hidden>0</span></button>
@@ -21,26 +25,8 @@
 
 <main>
   <section id="aba-lista">
-    <form id="formNovo" class="cartao novo">
-      <h2>Adicionar</h2>
-      <div class="linha">
-        <input id="novoTitulo" required placeholder="Título (ex.: One Piece)" autocomplete="off">
-        <select id="novoTipo">
-          <option value="serie">Série</option>
-          <option value="anime">Anime</option>
-          <option value="filme">Filme</option>
-        </select>
-      </div>
-      <div class="linha" id="linhaEps">
-        <label>Temporadas <input id="novoTemps" type="number" min="1" value="1"></label>
-        <label>Episódios por temporada <input id="novoEps" type="number" min="1" value="10"></label>
-      </div>
-      <input id="novoApelidos" placeholder="Outros nomes que aparecem na TV, separados por vírgula (opcional)" autocomplete="off">
-      <button type="submit" class="primario">Adicionar à lista</button>
-    </form>
-
     <div class="filtros">
-      <input id="busca" type="search" placeholder="Buscar na lista">
+      <input id="busca" type="search" placeholder="Buscar na minha lista">
       <div class="chips" id="filtroTipo">
         <button data-f="todos" class="ativa">Todos</button>
         <button data-f="serie">Séries</button>
@@ -54,7 +40,7 @@
   <section id="aba-recebidos" hidden>
     <div class="cartao">
       <h2>O que a box mandou</h2>
-      <p class="dica">Quando a box avisar que um episódio foi aberto e ele bater com algo da sua lista, ele é marcado sozinho. O que não bateu fica aqui para você ligar a um título.</p>
+      <p class="dica">Quando você abre um episódio na Brasil TV, a box avisa aqui. Se o nome bater com algo da sua lista, o episódio é marcado sozinho. Se não bater, ligue a um título uma vez e a página aprende o nome.</p>
       <div id="recebidos"></div>
     </div>
   </section>
@@ -62,24 +48,24 @@
   <section id="aba-ajustes" hidden>
     <div class="cartao">
       <h2>Ligação com a box</h2>
-      <p class="dica">A box manda o nome do episódio aberto para um canal privado no ntfy.sh. Esta página lê o canal a cada 20 segundos enquanto estiver aberta. O ntfy.sh guarda as mensagens por 12 horas, então abra a página pelo menos uma vez a cada 12 horas para não perder nada.</p>
-      <label class="bloco">Canal (é a "senha" da ligação, não divulgue)
-        <div class="linha"><input id="cfgTopico" autocomplete="off"><button id="btnNovoTopico" type="button">Gerar outro</button></div>
-      </label>
-      <label class="bloco">Servidor
-        <input id="cfgServidor" autocomplete="off">
+      <p class="dica">A box manda o nome do episódio aberto para um canal privado no ntfy.sh. A página confere o canal a cada 20 segundos enquanto está aberta. As mensagens ficam guardadas por 12 horas.</p>
+      <label class="bloco">Canal (use o mesmo em todos os aparelhos)
+        <div class="linha"><input id="cfgTopico" autocomplete="off" spellcheck="false"></div>
       </label>
       <label class="check"><input type="checkbox" id="cfgAtivo"> Receber avisos da box</label>
-      <p class="dica">Endereço que a box deve chamar (POST com o título no corpo):</p>
-      <code id="cfgUrl" class="url"></code>
-      <h3>Testar sem a box</h3>
-      <p class="dica">Simula a box enviando um título. Exemplos: <em>One Piece T1 E5</em>, <em>Naruto - Episódio 12</em>, <em>Duna</em>.</p>
-      <div class="linha"><input id="testeTexto" placeholder="Título como apareceria na TV"><button id="btnTeste" type="button">Enviar teste</button></div>
-      <p id="testeResultado" class="dica"></p>
+      <details>
+        <summary>Avançado</summary>
+        <label class="bloco">Servidor <input id="cfgServidor" autocomplete="off" spellcheck="false"></label>
+        <p class="dica">Endereço que a box chama:</p>
+        <code id="cfgUrl" class="url"></code>
+        <p class="dica">Simular a box (ex.: <em>Frieren T1 E5</em>):</p>
+        <div class="linha"><input id="testeTexto" placeholder="Título como aparece na TV"><button id="btnTeste" type="button">Enviar teste</button></div>
+        <p id="testeResultado" class="dica"></p>
+      </details>
     </div>
     <div class="cartao">
       <h2>Cópia de segurança</h2>
-      <p class="dica">A lista fica salva só neste navegador. Exporte de vez em quando, ou para levar para outro aparelho.</p>
+      <p class="dica">A lista fica salva neste navegador. Exporte para guardar ou levar para outro aparelho.</p>
       <div class="linha">
         <button id="btnExportar" type="button">Exportar arquivo</button>
         <label class="botao">Importar arquivo<input id="arqImportar" type="file" accept="application/json" hidden></label>
@@ -87,6 +73,45 @@
     </div>
   </section>
 </main>
+
+<!-- Painel de adicionar -->
+<div id="painelAdd" class="painel" hidden>
+  <div class="painel-caixa">
+    <div class="painel-cab">
+      <h2>Adicionar à lista</h2>
+      <button class="fechar" data-fechar aria-label="Fechar">✕</button>
+    </div>
+    <div class="chips" id="buscaTipo">
+      <button data-t="serie" class="ativa">Série ou anime</button>
+      <button data-t="filme">Filme</button>
+    </div>
+    <input id="buscaCatalogo" type="search" placeholder="Digite o nome (ex.: Frieren, Dark, Duna)" autocomplete="off">
+    <div id="resultados" class="resultados"></div>
+    <details id="addManual">
+      <summary>Não achou? Adicionar sem buscar</summary>
+      <form id="formNovo">
+        <div class="linha">
+          <input id="novoTitulo" required placeholder="Título" autocomplete="off">
+          <select id="novoTipo">
+            <option value="serie">Série</option>
+            <option value="anime">Anime</option>
+            <option value="filme">Filme</option>
+          </select>
+        </div>
+        <div class="linha" id="linhaEps">
+          <label>Temporadas <input id="novoTemps" type="number" min="1" value="1"></label>
+          <label>Episódios por temporada <input id="novoEps" type="number" min="1" value="12"></label>
+        </div>
+        <button type="submit" class="primario">Adicionar</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+<!-- Painel de detalhe -->
+<div id="painelDet" class="painel" hidden>
+  <div class="painel-caixa larga" id="detalhe"></div>
+</div>
 
 <div id="aviso" class="aviso" hidden></div>
 <script src="app.js"></script>

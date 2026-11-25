@@ -4,7 +4,8 @@ Lista de acompanhamento de séries, animes e filmes assistidos na Brasil TV.
 Página estática (HTML + CSS + JS, sem build), publicada no GitHub Pages.
 
 ## O que faz
-- Cadastro de série, anime ou filme, com temporadas e episódios.
+- Busca no catálogo (TVmaze, AniList, Wikipédia): capa, temporadas e nomes dos episódios entram sozinhos.
+- Cadastro manual quando não houver no catálogo.
 - Marcação de episódios assistidos com um toque (ou temporada inteira).
 - Recebe avisos da box HTV5 e marca o episódio sozinho.
 - Cópia de segurança: exportar e importar a lista em JSON.
