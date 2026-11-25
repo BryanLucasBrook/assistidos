@@ -516,6 +516,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) busc
 
 // dados da versão anterior
 function migrar() {
+  // a 1ª versão gerava um canal aleatório por aparelho; agora todos usam o canal da box
+  if (!E.cfg.canalV2) { if (/^assistidos-[a-z0-9]{9}$/.test(E.cfg.topico) && E.cfg.topico !== TOPICO_PADRAO) { E.cfg.topico = TOPICO_PADRAO; E.cfg.ultimoId = null; } E.cfg.canalV2 = true; }
   for (const it of E.itens) { it.eps = it.eps || {}; it.nomes = it.nomes || {}; it.apelidos = it.apelidos || []; it.temporadas = it.temporadas || []; }
 }
 migrar(); salvar(); render(); ciclo();
