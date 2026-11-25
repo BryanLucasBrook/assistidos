@@ -128,7 +128,8 @@ function interpretar(msg) {
     if (j && typeof j === 'object') return { titulo: String(j.titulo || j.title || ''), temp: j.temporada != null ? +j.temporada : null, ep: j.episodio != null ? +j.episodio : null };
   } catch (e) { /* texto livre */ }
   const pad = [
-    /\bs(\d{1,2})\s*e(\d{1,4})\b/i,
+    /\bs(\d{1,2})\s*[-–:.]?\s*e(\d{1,4})\b/i,
+    /\btemp\.?\s*(\d{1,2})\s*[-–:.]?\s*(?:ep\.?\s*)?(\d{1,4})\b/i, // Brasil TV: "Black Clover Temp.5 8"
     /\bt(\d{1,2})\s*[:.\-]?\s*e(?:p(?:is[oó]dio)?)?\.?\s*(\d{1,4})\b/i,
     /\btemporada\s*(\d{1,2})\D{0,20}?ep(?:is[oó]dio)?\.?\s*(\d{1,4})\b/i,
     /\b(\d{1,2})\s*x\s*(\d{1,4})\b/i,
