@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistidos</title>
+<meta name="description" content="Lista de séries, animes e filmes assistidos na Brasil TV">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topo">
+  <h1>📺 Assistidos</h1>
+  <div class="status" id="status" title="Conexão com a box">● box: desligado</div>
+  <nav class="abas">
+    <button data-aba="lista" class="ativa">Minha lista</button>
+    <button data-aba="recebidos">Da box <span id="contRecebidos" class="bolha" hidden>0</span></button>
+    <button data-aba="ajustes">Ajustes</button>
+  </nav>
+</header>
+
+<main>
+  <section id="aba-lista">
+    <form id="formNovo" class="cartao novo">
+      <h2>Adicionar</h2>
+      <div class="linha">
+        <input id="novoTitulo" required placeholder="Título (ex.: One Piece)" autocomplete="off">
+        <select id="novoTipo">
+          <option value="serie">Série</option>
+          <option value="anime">Anime</option>
+          <option value="filme">Filme</option>
+        </select>
+      </div>
+      <div class="linha" id="linhaEps">
+        <label>Temporadas <input id="novoTemps" type="number" min="1" value="1"></label>
+        <label>Episódios por temporada <input id="novoEps" type="number" min="1" value="10"></label>
+      </div>
+      <input id="novoApelidos" placeholder="Outros nomes que aparecem na TV, separados por vírgula (opcional)" autocomplete="off">
+      <button type="submit" class="primario">Adicionar à lista</button>
+    </form>
+
+    <div class="filtros">
+      <input id="busca" type="search" placeholder="Buscar na lista">
+      <div class="chips" id="filtroTipo">
+        <button data-f="todos" class="ativa">Todos</button>
+        <button data-f="serie">Séries</button>
+        <button data-f="anime">Animes</button>
+        <button data-f="filme">Filmes</button>
+      </div>
+    </div>
+    <div id="lista"></div>
+  </section>
+
+  <section id="aba-recebidos" hidden>
+    <div class="cartao">
+      <h2>O que a box mandou</h2>
+      <p class="dica">Quando a box avisar que um episódio foi aberto e ele bater com algo da sua lista, ele é marcado sozinho. O que não bateu fica aqui para você ligar a um título.</p>
+      <div id="recebidos"></div>
+    </div>
+  </section>
+
+  <section id="aba-ajustes" hidden>
+    <div class="cartao">
+      <h2>Ligação com a box</h2>
+      <p class="dica">A box manda o nome do episódio aberto para um canal privado no ntfy.sh. Esta página lê o canal a cada 20 segundos enquanto estiver aberta. O ntfy.sh guarda as mensagens por 12 horas, então abra a página pelo menos uma vez a cada 12 horas para não perder nada.</p>
+      <label class="bloco">Canal (é a "senha" da ligação, não divulgue)
+        <div class="linha"><input id="cfgTopico" autocomplete="off"><button id="btnNovoTopico" type="button">Gerar outro</button></div>
+      </label>
+      <label class="bloco">Servidor
+        <input id="cfgServidor" autocomplete="off">
+      </label>
+      <label class="check"><input type="checkbox" id="cfgAtivo"> Receber avisos da box</label>
+      <p class="dica">Endereço que a box deve chamar (POST com o título no corpo):</p>
+      <code id="cfgUrl" class="url"></code>
+      <h3>Testar sem a box</h3>
+      <p class="dica">Simula a box enviando um título. Exemplos: <em>One Piece T1 E5</em>, <em>Naruto - Episódio 12</em>, <em>Duna</em>.</p>
+      <div class="linha"><input id="testeTexto" placeholder="Título como apareceria na TV"><button id="btnTeste" type="button">Enviar teste</button></div>
+      <p id="testeResultado" class="dica"></p>
+    </div>
+    <div class="cartao">
+      <h2>Cópia de segurança</h2>
+      <p class="dica">A lista fica salva só neste navegador. Exporte de vez em quando, ou para levar para outro aparelho.</p>
+      <div class="linha">
+        <button id="btnExportar" type="button">Exportar arquivo</button>
+        <label class="botao">Importar arquivo<input id="arqImportar" type="file" accept="application/json" hidden></label>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="aviso" class="aviso" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
