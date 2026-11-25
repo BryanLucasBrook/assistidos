@@ -27,8 +27,8 @@ Formatos de texto aceitos:
 - `Duna` (filme)
 - JSON: `{"titulo":"One Piece","temporada":1,"episodio":5}`
 
-O título é comparado com o nome cadastrado e com os "outros nomes". O que não bater
-fica na aba **Da box** para ligar manualmente; a página aprende o nome usado pela TV.
+O título é comparado com o nome cadastrado e com os "outros nomes". Título novo é buscado no catálogo e adicionado sozinho;
+o nome usado pela TV vira apelido.
 
 O ntfy.sh guarda mensagens por 12 horas. Abra a página pelo menos uma vez nesse intervalo.
 

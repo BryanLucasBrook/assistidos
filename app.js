@@ -71,8 +71,8 @@ function ehAnime(show) {
   return (show.genres || []).includes('Anime') || (show.type === 'Animation' && show.language === 'Japanese');
 }
 async function buscarSeries(q) {
-  const tv = json('https://api.tvmaze.com/search/shows?q=' + encodeURIComponent(q)).then(rs => rs.slice(0, 10).map(({ show: s }) => ({
-    fonte: 'tvmaze', fid: s.id, titulo: s.name, tipo: ehAnime(s) ? 'anime' : 'serie',
+  const tv = json('https://api.tvmaze.com/search/shows?q=' + encodeURIComponent(q)).then(rs => rs.slice(0, 10).map(({ show: s, score }) => ({
+    fonte: 'tvmaze', fid: s.id, titulo: s.name, score, tipo: ehAnime(s) ? 'anime' : 'serie',
     ano: (s.premiered || '').slice(0, 4), capa: s.image && (s.image.medium || s.image.original),
     sinopse: semHtml(s.summary), extra: [s.network && s.network.name, s.webChannel && s.webChannel.name, s.status === 'Ended' ? 'Finalizada' : s.status === 'Running' ? 'Em exibição' : ''].filter(Boolean).join(' · '),
   }))).catch(() => []);
@@ -478,6 +478,44 @@ $('#arqImportar').addEventListener('change', async ev => {
   ev.target.value = '';
 });
 
+// ---------- cadastro automático do que a box mandou ----------
+/* Título novo vindo da box: procura no catálogo e cadastra sozinho.
+   Se o catálogo não tiver, cadastra só com o nome da TV. O nome da TV vira apelido. */
+async function autoAdicionar(texto, ts) {
+  const r = interpretar(texto);
+  const nomeTv = r.titulo && r.titulo.split(/\s+[-–|]\s+/)[0].trim();
+  if (!nomeTv || normalizar(nomeTv).length < 2) return null;
+  let escolhido = null;
+  try {
+    const res = await buscarSeries(nomeTv);
+    const q = normalizar(nomeTv);
+    const nomes = x => [x.titulo, ...(x.apelidos || [])].map(normalizar);
+    escolhido = res.find(x => x.tipo !== 'filme' && nomes(x).includes(q))
+      || res.find(x => x.tipo !== 'filme' && nomes(x).some(n => n.startsWith(q + ' ') || q.startsWith(n + ' ')))
+      || res.find(x => x.fonte === 'tvmaze' && x.score >= 0.7);
+  } catch (e) { /* sem catálogo agora: cadastra só com o nome */ }
+  const tipoPadrao = r.ep != null ? 'serie' : 'filme';
+  const it = {
+    id: novoId(), tipo: escolhido ? escolhido.tipo : tipoPadrao, titulo: escolhido ? escolhido.titulo : nomeTv,
+    apelidos: [...new Set([nomeTv, ...((escolhido && escolhido.apelidos) || [])])].filter(n => normalizar(n) !== normalizar(escolhido ? escolhido.titulo : nomeTv)),
+    capa: escolhido && escolhido.capa || null, ano: escolhido && escolhido.ano || '', sinopse: escolhido && escolhido.sinopse || '',
+    fonte: escolhido ? escolhido.fonte : 'box', fid: escolhido ? escolhido.fid : null,
+    temporadas: [], nomes: {}, eps: {}, visto: null, criado: ts, automatico: true,
+  };
+  if (it.tipo !== 'filme') {
+    try { if (escolhido && escolhido.fonte === 'tvmaze') Object.assign(it, await detalhesTvmaze(escolhido.fid)); } catch (e) { /* segue sem episódios */ }
+    if (!it.temporadas.length) it.temporadas = [escolhido && escolhido.eps || Math.max(12, r.ep || 1)];
+    // a Brasil TV pode dividir temporadas diferente do catálogo: sem número no catálogo, a temporada nasce do que a TV mostra
+    if (r.temp != null && r.temp > it.temporadas.length) { it.nomes = {}; it.temporadas = Array(r.temp).fill(12); }
+  }
+  // já existe (outro aviso cadastrou antes)? só aprende o nome
+  const igual = E.itens.find(i => (it.fid && i.fonte === it.fonte && i.fid === it.fid));
+  if (igual) { if (!igual.apelidos.some(n => normalizar(n) === normalizar(nomeTv))) igual.apelidos.push(nomeTv); return aplicarAviso(texto, ts, igual); }
+  E.itens.push(it);
+  const res = aplicarAviso(texto, ts, it);
+  return res && res + ' (adicionado sozinho)';
+}
+
 // ---------- canal da box ----------
 let buscando = false;
 async function buscarAvisos() {
@@ -494,9 +532,13 @@ async function buscarAvisos() {
       E.cfg.ultimoId = m.id;
       if (E.recebidos.some(x => x.id === m.id)) continue;
       const ts = (m.time || Date.now() / 1000) * 1000, texto = String(m.message || '').slice(0, 300);
-      const res = aplicarAviso(texto, ts);
+      const res = aplicarAviso(texto, ts) || await autoAdicionar(texto, ts);
       E.recebidos.push({ id: m.id, texto, ts, resolvido: res });
       if (res) marcados.push(res);
+    }
+    for (const o of E.recebidos) if (!o.resolvido && Date.now() - o.ts < 864e5) { // pendentes de antes
+      o.resolvido = aplicarAviso(o.texto, o.ts) || await autoAdicionar(o.texto, o.ts);
+      if (o.resolvido) marcados.push(o.resolvido);
     }
     if (E.recebidos.length > 300) E.recebidos = E.recebidos.slice(-300);
     salvar(); if (linhas.length) render();
